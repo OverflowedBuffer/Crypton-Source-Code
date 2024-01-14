@@ -1,3 +1,4 @@
 ﻿  source.cpp
   The contents of <filesystem> are available only with C++17 or later.
+C:\Users\iharb\source\repos\Crypton\Crypton\source.cpp(382,58): warning C4552: '+': result of expression not used
   Crypton.vcxproj -> C:\Users\iharb\source\repos\Crypton\x64\Debug\Crypton.exe
